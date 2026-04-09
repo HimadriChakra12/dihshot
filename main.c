@@ -1,7 +1,8 @@
 // Config
 
-#define OPTDIR "~/.local/share/screenshots"
-#define OPTFORMAT "%s%s/%d-%02d-%02d_%02d:%02d:%02d.webp"
+#define OPTDIR "~/Pictures/screenshots/"
+#define OPTFORMAT "%d-%02d-%02d_%02d:%02d:%02d.webp"
+#define OPTFORMATARGS tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec
 #define OPTQUALITY 80
 #define OPTWIDTH 1
 #define OPTR 255
@@ -25,17 +26,16 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <sys/stat.h>
+#include <sys/types.h>
+
+#include <linux/limits.h>
+
 // Statics
 
 static Display* disp;
 static int      scrn;
 static Window   root;
-
-#ifdef OPTDIR
-	static char* dir = OPTDIR;
-#else
-	static char* dir = "/tmp/";
-#endif
 
 static unsigned long int r, g, b;
 static Time lasttime;
@@ -231,23 +231,32 @@ int main(int argc, char* argv[]) {
 
 	// Save file
 	static FILE* fp = NULL;
-	static char fn[96];
-	static char* home = NULL;
+	char fn[PATH_MAX];
+	
 	time_t t = time(NULL);
 	struct tm tm = *localtime(&t);
 
-	if (dir[0] == '~') {
-		home = getenv("HOME");
-		if (!home) {
-			struct passwd *pw = getpwuid(getuid());
-			home = pw->pw_dir;
+	#ifdef OPTDIR
+		if (OPTDIR[0] == '~') {
+			const char* home = getenv("HOME");
+			if (!home) {
+				const struct passwd *pw = getpwuid(getuid());
+				home = pw->pw_dir;
+			}
+			if (!home)
+				die("Couldn't resolve tilde in OPTDIR");
+			strncpy(fn + strlen(fn), home, sizeof(fn) - strlen(fn));
+			strncpy(fn + strlen(fn), &OPTDIR[1], sizeof(fn) - strlen(fn));
+		} else {
+			strncpy(fn + strlen(fn), OPTDIR, sizeof(fn) - strlen(fn));
 		}
-	}
-	sprintf(fn, OPTFORMAT,
-		dir[0] == '~' ? home : "",
-		dir[0] == '~' ? dir + 1 : dir,
-		tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec
-	);
+	#else
+		fnptr = strncpy(fn + strlen(fn), "/tmp/", sizeof(path) - strlen(fn));
+	#endif
+
+	mkdir(fn, 0755);
+	snprintf(fn + strlen(fn), sizeof(fn) - strlen(fn), OPTFORMAT, OPTFORMATARGS);
+
 	fp = fopen(fn, "wb");
 	if (fp == NULL) die("Can't open %s", fn);
 	debug("Writing to %s", fn);

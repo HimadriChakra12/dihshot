@@ -1,11 +1,10 @@
-
 NAME = screenshot
 PREFIX= /usr/local
 
 CC = cc
-LIBS = -lX11 -lwebp -O4
+LIBS = -lX11 -lwebp
 FLAGS = -pedantic -Wall
-FLAGSDEBUG = -g -fsanitize=address -fno-omit-frame-pointer
+FLAGSDEBUG = -g -fsanitize=address -fno-omit-frame-pointer -O0
 FLAGSRELEASE = -O4
 
 build:
