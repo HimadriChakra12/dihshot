@@ -231,7 +231,7 @@ int main(int argc, char* argv[]) {
 
 	// Save file
 	static FILE* fp = NULL;
-	char fn[PATH_MAX];
+	char fn[PATH_MAX] = "";
 	
 	time_t t = time(NULL);
 	struct tm tm = *localtime(&t);
@@ -239,9 +239,11 @@ int main(int argc, char* argv[]) {
 	#ifdef OPTDIR
 		if (OPTDIR[0] == '~') {
 			const char* home = getenv("HOME");
+			const struct passwd *pw;
 			if (!home) {
-				const struct passwd *pw = getpwuid(getuid());
-				home = pw->pw_dir;
+				pw = getpwuid(getuid());
+				if (pw)
+					home = pw->pw_dir;
 			}
 			if (!home)
 				die("Couldn't resolve tilde in OPTDIR");
