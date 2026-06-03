@@ -85,6 +85,13 @@ static void apply_drag(Zone z, int dx, int dy) {
     // Keep minimum size
     if (rect.w < 2) rect.w = 2;
     if (rect.h < 2) rect.h = 2;
+    // Clamp to screen bounds
+    if (rect.x < 0) { rect.w += rect.x; rect.x = 0; }
+    if (rect.y < 0) { rect.h += rect.y; rect.y = 0; }
+    if (rect.x + rect.w > W) rect.w = W - rect.x;
+    if (rect.y + rect.h > H) rect.h = H - rect.y;
+    if (rect.w < 2) rect.w = 2;
+    if (rect.h < 2) rect.h = 2;
 }
 
 // ── Drawing ───────────────────────────────────────────────────────────────────

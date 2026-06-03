@@ -70,8 +70,17 @@ int main(int argc, char *argv[]) {
         if (result == SELECT_CANCEL) goto end;
     }
 
-    // Crop to selection
-    img = XSubImage(img, select_x(), select_y(), select_w(), select_h());
+    // Clamp selection to screen bounds before cropping
+    {
+        int x = select_x(), y = select_y();
+        int w = select_w(), h = select_h();
+        if (x < 0) { w += x; x = 0; }
+        if (y < 0) { h += y; y = 0; }
+        if (x + w > W) w = W - x;
+        if (y + h > H) h = H - y;
+        if (w < 1 || h < 1) goto end;
+        img = XSubImage(img, x, y, w, h);
+    }
     if (!img) die("XSubImage failed");
 
     XSync(disp, False);
