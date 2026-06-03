@@ -1,20 +1,20 @@
-NAME = screenshot
-PREFIX= /usr/local
+CC      = cc
+CFLAGS  = -O2 -Wall -Wextra -std=c99
+LIBS    = -lX11 -lwebp
 
-CC = cc
-LIBS = -lX11 -lwebp
-FLAGS = -pedantic -Wall
-FLAGSDEBUG = -g -fsanitize=address -fno-omit-frame-pointer -O0
-FLAGSRELEASE = -O4
+# Uncomment to enable debug output
+# CFLAGS += -DDEBUG
 
-build:
-	gcc *.c -o $(NAME) $(FLAGS) $(FLAGSRELEASE) $(LIBS)
+SRCS = main.c xutil.c capture.c select.c save.c scripts.c
+OBJS = $(SRCS:.c=.o)
 
-debug:
-	gcc -DDEBUG *.c -o $(NAME) $(FLAGS) $(FLAGSDEBUG) $(LIBS)
+screenshot: $(OBJS)
+	$(CC) $(OBJS) -o $@ $(LIBS)
 
-install:
-	cp "$(NAME)" "$(PREFIX)/bin/$(NAME)"
+%.o: %.c
+	$(CC) $(CFLAGS) -c $< -o $@
 
-uninstall:
-	rm -f "$(PREFIX)/bin/$(NAME)"
+clean:
+	rm -f $(OBJS) screenshot
+
+.PHONY: clean
