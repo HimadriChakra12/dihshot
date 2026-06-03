@@ -1,7 +1,7 @@
-/capture.o
-/xutil.o
-/select.o
-/scripts.o
-/screenshot
-/save.o
+/src/capture.o
+/src/save.o
+/src/scripts.o
+/src/select.o
+/src/xutil.o
 /main.o
+/screenshot
