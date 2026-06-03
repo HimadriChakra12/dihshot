@@ -1,6 +1,6 @@
 #include "save.h"
 #include "capture.h"
-#include "config.h"
+#include "../config.h"
 
 #include <webp/encode.h>
 

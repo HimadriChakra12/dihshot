@@ -20,11 +20,9 @@
 #define OPTANNOTATE "satty"
 
 // ── Pre-selection mode keybinds ───────────────────────────────────────────────
-// Press one of these before drawing. Any other key or a left-click starts
-// region mode. Escape / right-click always cancels.
-#define OPTKEY_REGION     XK_r
+// Press before drawing. Any other key or a left-click starts region mode.
+// Escape / right-click always cancels.
 #define OPTKEY_FULLSCREEN XK_f
-#define OPTKEY_WINDOW     XK_w
 
 // ── Post-selection action keybinds ────────────────────────────────────────────
 #define OPTKEY_SAVE     XK_s   // save to OPTDIR

@@ -1,10 +1,10 @@
 #include "config.h"
-#include "xutil.h"
-#include "capture.h"
-#include "select.h"
-#include "save.h"
-#include "scripts.h"
-#include "state.h"
+#include "src/xutil.h"
+#include "src/capture.h"
+#include "src/select.h"
+#include "src/save.h"
+#include "src/scripts.h"
+#include "src/state.h"
 
 #include <X11/Xlib.h>
 #include <stdio.h>

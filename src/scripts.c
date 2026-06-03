@@ -1,7 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "scripts.h"
-#include "config.h"
+#include "../config.h"
 
 #include <stdio.h>
 #include <stdlib.h>

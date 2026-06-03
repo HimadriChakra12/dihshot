@@ -2,7 +2,7 @@
 #include "xutil.h"
 #include "capture.h"
 #include "scripts.h"
-#include "config.h"
+#include "../config.h"
 
 #include <X11/Xlib.h>
 #include <X11/keysym.h>
@@ -142,7 +142,7 @@ static void redraw(void) {
     XDrawString(disp, backbuffer, gc, rect.x, ly, label, strlen(label));
 
     XCopyArea(disp, backbuffer, win, gc, 0, 0, W, H, 0, 0);
-    XSync(disp, False);
+    XFlush(disp);
 }
 
 // ── Keyboard grab helper ──────────────────────────────────────────────────────
@@ -154,87 +154,25 @@ static int grab_keyboard(void) {
     ) == GrabSuccess;
 }
 
-// ── Window picking ────────────────────────────────────────────────────────────
-//
-// Walk the window tree to find the deepest mapped window that contains (mx,my)
-// that is a direct child of root (i.e. a real top-level / WM-managed window).
-// Returns None if nothing suitable found.
-//
-static Window find_top_level_at(int mx, int my) {
-    Window parent, *children = NULL;
-    unsigned int nchildren;
-    if (!XQueryTree(disp, root, &(Window){0}, &parent, &children, &nchildren))
-        return None;
-
-    // Iterate in reverse (topmost windows are last in the stacking order)
-    Window found = None;
-    for (int i = (int)nchildren - 1; i >= 0; i--) {
-        XWindowAttributes wa;
-        if (!XGetWindowAttributes(disp, children[i], &wa)) continue;
-        if (wa.map_state != IsViewable)                    continue;
-        if (mx < wa.x || mx >= wa.x + wa.width)           continue;
-        if (my < wa.y || my >= wa.y + wa.height)           continue;
-        found = children[i];
-        break;
-    }
-    if (children) XFree(children);
-    return found;
-}
-
-// Get geometry of a window relative to root.
-static int window_rect(Window w, Rect *out) {
-    Window child;
-    int rx, ry;
-    unsigned int rw, rh, bw, depth;
-    if (!XGetGeometry(disp, w, &(Window){0}, &rx, &ry, &rw, &rh, &bw, &depth))
-        return 0;
-    // Translate to root coordinates (XGetGeometry gives parent-relative coords)
-    if (!XTranslateCoordinates(disp, w, root, 0, 0, &rx, &ry, &child))
-        return 0;
-    out->x = rx;
-    out->y = ry;
-    out->w = (int)rw;
-    out->h = (int)rh;
-    return 1;
-}
-
-// Draw a highlight rect over a window (call before XCopyArea to screen)
-static void highlight_window(Window w) {
-    Rect wr;
-    if (!window_rect(w, &wr)) return;
-
-    XPutImage(disp, backbuffer, gc, img, 0, 0, 0, 0, W, H);
-
-    // Dim everything outside the hovered window
-    XSetForeground(disp, gc, OPTDIMCOLOR);
-    XFillRectangle(disp, backbuffer, gc, 0, 0, W, wr.y);
-    XFillRectangle(disp, backbuffer, gc, 0, wr.y + wr.h, W, H - wr.y - wr.h);
-    XFillRectangle(disp, backbuffer, gc, 0, wr.y, wr.x, wr.h);
-    XFillRectangle(disp, backbuffer, gc,
-                   wr.x + wr.w, wr.y, W - wr.x - wr.w, wr.h);
-
-    // Border
-    XSetForeground(disp, gc, (OPTR << 16) + (OPTG << 8) + OPTB);
-    XDrawRectangle(disp, backbuffer, gc, wr.x, wr.y, wr.w, wr.h);
-
-    XCopyArea(disp, backbuffer, win, gc, 0, 0, W, H, 0, 0);
-    XSync(disp, False);
-}
-
 // ── Pre-selection mode chooser ────────────────────────────────────────────────
 //
 // Grabs keyboard, waits for one of the mode keys or Escape.
 // A mouse press before any key also selects region mode (event put back).
 //
 static Mode pick_mode(void) {
-    if (XGrabKeyboard(disp, root, False,
-                      GrabModeAsync, GrabModeAsync,
-                      CurrentTime) != GrabSuccess) {
-        debug("pre-select keyboard grab failed, defaulting to region");
-        return MODE_REGION;
+    // Grab pointer immediately so a plain click goes straight to region.
+    if (!xutil_grab_pointer()) {
+        debug("pre-select pointer grab failed");
+        return (Mode)-1;
     }
+    // Also grab keyboard so we can intercept f / Escape before the click.
+    int have_kbd = XGrabKeyboard(disp, root, False,
+                                 GrabModeAsync, GrabModeAsync,
+                                 CurrentTime) == GrabSuccess;
+    if (!have_kbd)
+        debug("pre-select keyboard grab failed — f key unavailable");
 
-    Mode mode = MODE_REGION;
+    Mode mode   = MODE_REGION;
     int  cancel = 0;
     XEvent e;
 
@@ -243,22 +181,30 @@ static Mode pick_mode(void) {
 
         if (e.type == KeyPress) {
             KeySym ks = XLookupKeysym(&e.xkey, 0);
-            if      (ks == XK_Escape)          { cancel = 1;             break; }
-            else if (ks == OPTKEY_REGION)       { mode = MODE_REGION;     break; }
-            else if (ks == OPTKEY_FULLSCREEN)   { mode = MODE_FULLSCREEN; break; }
-            else if (ks == OPTKEY_WINDOW)       { mode = MODE_WINDOW;     break; }
-            // Unknown key → ignore, keep waiting
-        }
+            if      (ks == XK_Escape)        { cancel = 1;             break; }
+            else if (ks == OPTKEY_FULLSCREEN) { mode = MODE_FULLSCREEN; break; }
+            else                             { mode = MODE_REGION;     break; }
 
-        if (e.type == ButtonPress) {
-            // Click without choosing a mode → region, replay the click
-            XPutBackEvent(disp, &e);
+        } else if (e.type == ButtonPress) {
+            if (e.xbutton.button == Button3) { cancel = 1; break; }
+            XPutBackEvent(disp, &e); // replay for region loop
             break;
         }
     }
 
-    XUngrabKeyboard(disp, CurrentTime);
-    return cancel ? (Mode)-1 : mode;
+    if (have_kbd) XUngrabKeyboard(disp, CurrentTime);
+
+    if (cancel) {
+        XUngrabPointer(disp, CurrentTime);
+        return (Mode)-1;
+    }
+
+    // Fullscreen doesn't need the pointer grab — release it
+    if (mode == MODE_FULLSCREEN)
+        XUngrabPointer(disp, CurrentTime);
+
+    // Region keeps the grab; run_selection will release it after first click
+    return mode;
 }
 
 // ── Main selection loop ───────────────────────────────────────────────────────
@@ -299,66 +245,8 @@ int run_selection(void) {
         goto post_selection;
     }
 
-    // ── Grab pointer now that mode is chosen ──────────────────────────────────
-    if (!xutil_grab_pointer()) return SELECT_CANCEL; // already logged by caller
-
-    // ── WINDOW: hover-highlight, click to commit ───────────────────────────────
-    if (mode == MODE_WINDOW) {
-        if (!screenshot()) return SELECT_ERROR;
-        XMapRaised(disp, win);
-        XSync(disp, False);
-
-        Window hovered = None;
-        XEvent e;
-
-        while (1) {
-            XNextEvent(disp, &e);
-
-            if (e.type == MotionNotify) {
-                Window w = find_top_level_at(e.xmotion.x, e.xmotion.y);
-                if (w != hovered) {
-                    hovered = w;
-                    if (hovered != None)
-                        highlight_window(hovered);
-                    else {
-                        // Mouse not over any window — just show raw screenshot
-                        XPutImage(disp, win, gc, img, 0, 0, 0, 0, W, H);
-                        XSync(disp, False);
-                    }
-                }
-
-            } else if (e.type == ButtonPress) {
-                if (e.xbutton.button == Button3) {
-                    XUngrabPointer(disp, CurrentTime);
-                    return SELECT_CANCEL;
-                }
-                if (e.xbutton.button == Button1) {
-                    hovered = find_top_level_at(e.xbutton.x, e.xbutton.y);
-                    if (hovered == None || !window_rect(hovered, &rect)) {
-                        XUngrabPointer(disp, CurrentTime);
-                        return SELECT_CANCEL;
-                    }
-                    debug("MODE_WINDOW: picked window 0x%lx  rect=%d,%d %dx%d",
-                          hovered, rect.x, rect.y, rect.w, rect.h);
-                    break;
-                }
-
-            } else if (e.type == KeyPress) {
-                KeySym ks = XLookupKeysym(&e.xkey, 0);
-                if (ks == XK_Escape) {
-                    XUngrabPointer(disp, CurrentTime);
-                    return SELECT_CANCEL;
-                }
-            }
-        }
-
-        XUngrabPointer(disp, CurrentTime);
-        if (!grab_keyboard()) debug("Keyboard grab failed — shortcuts disabled");
-        redraw();
-        goto post_selection;
-    }
-
     // ── REGION: drag out a rectangle ─────────────────────────────────────────
+    // Pointer is already grabbed by pick_mode for region mode.
     {
         State  state    = STATE_SELECTING;
         Zone   dragging = ZONE_NONE;
@@ -403,6 +291,13 @@ int run_selection(void) {
             switch (state) {
             case STATE_SELECTING:
                 if (e.type == MotionNotify) {
+                    // Coalesce: skip to the last queued MotionNotify
+                    while (XPending(disp)) {
+                        XEvent next;
+                        XPeekEvent(disp, &next);
+                        if (next.type != MotionNotify) break;
+                        XNextEvent(disp, &e);
+                    }
                     int cx = e.xmotion.x, cy = e.xmotion.y;
                     rect.x = anchor_x < cx ? anchor_x : cx;
                     rect.y = anchor_y < cy ? anchor_y : cy;
@@ -434,6 +329,13 @@ int run_selection(void) {
 
             case STATE_SELECTED:
                 if (e.type == MotionNotify) {
+                    // Coalesce: skip to the last queued MotionNotify
+                    while (XPending(disp)) {
+                        XEvent next;
+                        XPeekEvent(disp, &next);
+                        if (next.type != MotionNotify) break;
+                        XNextEvent(disp, &e);
+                    }
                     int cx = e.xmotion.x, cy = e.xmotion.y;
                     if (dragging != ZONE_NONE) {
                         apply_drag(dragging, cx - px, cy - py);
@@ -500,6 +402,13 @@ post_selection:
             XNextEvent(disp, &e);
 
             if (e.type == MotionNotify) {
+                // Coalesce: skip to the last queued MotionNotify
+                while (XPending(disp)) {
+                    XEvent next;
+                    XPeekEvent(disp, &next);
+                    if (next.type != MotionNotify) break;
+                    XNextEvent(disp, &e);
+                }
                 int cx = e.xmotion.x, cy = e.xmotion.y;
                 if (dragging != ZONE_NONE) {
                     apply_drag(dragging, cx - px, cy - py);

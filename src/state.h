@@ -3,7 +3,6 @@
 // ── Selection mode (pre-selection keypress) ───────────────────────────────────
 typedef enum {
     MODE_REGION,
-    MODE_WINDOW,
     MODE_FULLSCREEN,
 } Mode;
 
