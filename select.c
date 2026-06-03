@@ -13,11 +13,6 @@
 // ── Rect ─────────────────────────────────────────────────────────────────────
 static Rect rect;
 
-int select_x(void) { return rect.x; }
-int select_y(void) { return rect.y; }
-int select_w(void) { return rect.w; }
-int select_h(void) { return rect.h; }
-
 // ── Drag/resize handle logic ──────────────────────────────────────────────────
 //
 // 9 zones:  TL T TR
@@ -221,16 +216,10 @@ static void highlight_window(Window w) {
 
 // ── Pre-selection mode chooser ────────────────────────────────────────────────
 //
-// Called before the pointer is grabbed.  Grabs the keyboard, shows a crosshair,
-// and waits for:
-//   f        → MODE_FULLSCREEN
-//   w        → MODE_WINDOW
-//   Escape   → cancel
-//   anything else / click → MODE_REGION (default)
+// Grabs keyboard, waits for one of the mode keys or Escape.
+// A mouse press before any key also selects region mode (event put back).
 //
 static Mode pick_mode(void) {
-    // Grab keyboard only — pointer is still free so the crosshair cursor is
-    // shown by the server default, not our grab cursor.
     if (XGrabKeyboard(disp, root, False,
                       GrabModeAsync, GrabModeAsync,
                       CurrentTime) != GrabSuccess) {
@@ -238,7 +227,8 @@ static Mode pick_mode(void) {
         return MODE_REGION;
     }
 
-    Mode mode = MODE_REGION; // default if user just clicks
+    Mode mode = MODE_REGION;
+    int  cancel = 0;
     XEvent e;
 
     while (1) {
@@ -246,37 +236,39 @@ static Mode pick_mode(void) {
 
         if (e.type == KeyPress) {
             KeySym ks = XLookupKeysym(&e.xkey, 0);
-            if (ks == XK_Escape) {
-                mode = (Mode)-1;
-                break;
-            }
-            if (ks == OPTKEY_FULLSCREEN) { mode = MODE_FULLSCREEN; break; }
-            if (ks == OPTKEY_WINDOW)     { mode = MODE_WINDOW;     break; }
-            // Any other key → region (fall through to pointer grab)
-            break;
+            if      (ks == XK_Escape)          { cancel = 1;             break; }
+            else if (ks == OPTKEY_REGION)       { mode = MODE_REGION;     break; }
+            else if (ks == OPTKEY_FULLSCREEN)   { mode = MODE_FULLSCREEN; break; }
+            else if (ks == OPTKEY_WINDOW)       { mode = MODE_WINDOW;     break; }
+            // Unknown key → ignore, keep waiting
         }
 
-        // Mouse button press before any key → region mode, keep the event
         if (e.type == ButtonPress) {
+            // Click without choosing a mode → region, replay the click
             XPutBackEvent(disp, &e);
             break;
         }
     }
 
     XUngrabKeyboard(disp, CurrentTime);
-    return mode;
+    return cancel ? (Mode)-1 : mode;
 }
 
 // ── Main selection loop ───────────────────────────────────────────────────────
 
-// Out-params set on SELECT_OK
-static int    chosen_script = -1; // -1 = default save, >=0 = scripts[] index
+static Action chosen_action     = ACTION_NONE;
+static int    chosen_script_idx = -1;
 static Script loaded_scripts[MAX_SCRIPTS];
 static int    nscripts = 0;
 
-int select_chosen_script(void)        { return chosen_script; }
-Script *select_scripts(void)          { return loaded_scripts; }
-int    select_nscripts(void)          { return nscripts; }
+int     select_x(void)           { return rect.x; }
+int     select_y(void)           { return rect.y; }
+int     select_w(void)           { return rect.w; }
+int     select_h(void)           { return rect.h; }
+Action  select_action(void)      { return chosen_action; }
+int     select_script_idx(void)  { return chosen_script_idx; }
+Script *select_scripts(void)     { return loaded_scripts; }
+int     select_nscripts(void)    { return nscripts; }
 
 int run_selection(void) {
     nscripts = scripts_load(loaded_scripts);
@@ -530,35 +522,64 @@ post_selection:
                 (void)state; /* suppress maybe-unused */
                 handle_key: {
                     KeySym ks = XLookupKeysym(&e.xkey, 0);
+
                     if (ks == XK_Escape) {
                         XUngrabPointer(disp, CurrentTime);
                         XUngrabKeyboard(disp, CurrentTime);
                         return SELECT_CANCEL;
                     }
-                    if (ks == XK_Return || ks == XK_KP_Enter || ks == XK_space) {
-                        chosen_script = -1; state = STATE_DONE;
-                        debug("STATE -> DONE (default save)");
+
+                    // ── Built-in actions ──────────────────────────────────────
+                    if (ks == OPTKEY_SAVE) {
+                        chosen_action = ACTION_SAVE;
+                        state = STATE_DONE;
+                        debug("ACTION_SAVE");
                         break;
                     }
+                    if (ks == OPTKEY_COPY) {
+                        chosen_action = ACTION_COPY;
+                        state = STATE_DONE;
+                        debug("ACTION_COPY");
+                        break;
+                    }
+                    if (ks == OPTKEY_ANNOTATE) {
+                        chosen_action = ACTION_ANNOTATE;
+                        state = STATE_DONE;
+                        debug("ACTION_ANNOTATE");
+                        break;
+                    }
+
+                    // ── Scripts by index (1-9) ────────────────────────────────
                     if (ks >= XK_1 && ks <= XK_9) {
                         int idx = (int)(ks - XK_1);
                         if (idx < nscripts) {
-                            chosen_script = idx; state = STATE_DONE;
-                            debug("STATE -> DONE (script %d: %s)",
+                            chosen_action     = ACTION_SCRIPT;
+                            chosen_script_idx = idx;
+                            state = STATE_DONE;
+                            debug("ACTION_SCRIPT idx=%d (%s)",
                                   idx, loaded_scripts[idx].name);
                         }
                         break;
                     }
-                    #ifdef OPTKEYBINDS
+
+                    // ── Named script keybinds from config ─────────────────────
+                    #ifdef OPTSCRIPTBINDS
                     {
-                        static const struct { KeySym sym; int script_idx; }
-                            kb[] = OPTKEYBINDS;
+                        static const struct { KeySym sym; const char *name; }
+                            kb[] = OPTSCRIPTBINDS;
                         for (size_t i = 0; i < sizeof(kb)/sizeof(kb[0]); i++) {
-                            if (ks == kb[i].sym) {
-                                chosen_script = kb[i].script_idx;
+                            if (ks != kb[i].sym) continue;
+                            for (int j = 0; j < nscripts; j++) {
+                                if (strcmp(loaded_scripts[j].name, kb[i].name) != 0)
+                                    continue;
+                                chosen_action     = ACTION_SCRIPT;
+                                chosen_script_idx = j;
                                 state = STATE_DONE;
+                                debug("ACTION_SCRIPT name=%s idx=%d",
+                                      kb[i].name, j);
                                 break;
                             }
+                            break;
                         }
                     }
                     #endif

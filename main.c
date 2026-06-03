@@ -9,7 +9,36 @@
 #include <X11/Xlib.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
+
+// ── Built-in actions ──────────────────────────────────────────────────────────
+
+static void action_save(const char *path) {
+    printf("%s\n", path);
+}
+
+static void action_copy(const char *path) {
+    char *args[] = {
+        "xclip", "-selection", "clipboard", "-t", "image/png",
+        (char *)path, NULL
+    };
+    execvp(args[0], args);
+    perror("xclip"); // only reached if exec fails
+}
+
+static void action_annotate(const char *path) {
+#ifdef OPTANNOTATE
+    char *args[] = { OPTANNOTATE, (char *)path, NULL };
+    execvp(args[0], args);
+    perror(OPTANNOTATE);
+#else
+    (void)path;
+    fprintf(stderr, "Annotation disabled (OPTANNOTATE not set)\n");
+#endif
+}
+
+// ── Entry point ───────────────────────────────────────────────────────────────
 
 int main(int argc, char *argv[]) {
     (void)argv;
@@ -17,20 +46,23 @@ int main(int argc, char *argv[]) {
     if (!xutil_init())
         die("Failed to open display / get root window size");
 
-    // ── Full-screen mode (any argument given) ─────────────────────────────────
+    // ── Headless full-screen mode (any CLI argument) ──────────────────────────
     if (argc > 1) {
         if (!screenshot()) die("Failed to capture screen");
         XSync(disp, False);
-        if (save_image() != 0) goto end;
-        // save_image execs xclip on success — only reach here on exec failure
-        goto end;
+
+        char path[4096];
+        if (save_image_path(path, sizeof(path)) != 0)
+            die("Failed to save screenshot");
+
+        action_copy(path);
+        goto end; // only reached if xclip is missing
     }
 
     // ── Interactive mode ──────────────────────────────────────────────────────
     if (!xutil_create_window())     die("Failed to create overlay window");
     if (!xutil_create_gc())         die("Failed to create GC");
     if (!xutil_create_backbuffer()) die("Failed to create backbuffer");
-    // Note: pointer grab is done inside run_selection() per mode
 
     {
         int result = run_selection();
@@ -38,39 +70,50 @@ int main(int argc, char *argv[]) {
         if (result == SELECT_CANCEL) goto end;
     }
 
-    // Crop image to selection
-    img = XSubImage(img,
-                    select_x(), select_y(),
-                    select_w(), select_h());
+    // Crop to selection
+    img = XSubImage(img, select_x(), select_y(), select_w(), select_h());
     if (!img) die("XSubImage failed");
 
     XSync(disp, False);
 
-    // Unmap the overlay before any external tool (e.g. satty) tries to draw
-    if (win) XUnmapWindow(disp, win);
-    XSync(disp, False);
+    // Unmap overlay before any external tool draws
+    if (win) { XUnmapWindow(disp, win); XSync(disp, False); }
 
+    // Save to disk — all actions receive the file path
     {
-        // Save to disk first — scripts always receive a file path
-        char saved_path[4096];
-        if (save_image_path(saved_path, sizeof(saved_path)) != 0)
+        char path[4096];
+        if (save_image_path(path, sizeof(path)) != 0)
             die("Failed to save screenshot");
 
-        int script_idx = select_chosen_script();
+        Action    act = select_action();
+        Rect      r   = { select_x(), select_y(), select_w(), select_h() };
 
-        if (script_idx >= 0 && script_idx < select_nscripts()) {
-            // Run chosen script with rect + file env vars
-            Rect r = { select_x(), select_y(), select_w(), select_h() };
-            scripts_run(&select_scripts()[script_idx], saved_path, &r);
-        } else {
-            // Default: just print the path and copy to clipboard
-            printf("%s\n", saved_path);
-            char *args[] = {
-                "xclip", "-selection", "clipboard",
-                "-t", "image/png", saved_path, NULL
-            };
-            execvp(args[0], args);
-            // execvp returns only on failure — not fatal, file is already saved
+        switch (act) {
+        case ACTION_SAVE:
+            action_save(path);
+            break;
+
+        case ACTION_COPY:
+            action_copy(path);    // execs — doesn't return on success
+            break;
+
+        case ACTION_ANNOTATE:
+            action_annotate(path); // execs — doesn't return on success
+            break;
+
+        case ACTION_SCRIPT: {
+            int idx = select_script_idx();
+            if (idx >= 0 && idx < select_nscripts()) {
+                scripts_run(&select_scripts()[idx], path, &r);
+            }
+            break;
+        }
+
+        case ACTION_NONE:
+        default:
+            // No action chosen (shouldn't happen) — just print the path
+            action_save(path);
+            break;
         }
     }
 
