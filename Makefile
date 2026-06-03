@@ -1,20 +1,36 @@
 CC     = cc
 CFLAGS = -O2 -Wall -Wextra -std=c99 -Isrc
 LIBS   = -lX11 -lwebp
-
-# Uncomment to enable debug output
 # CFLAGS += -DDEBUG
 
-SRCS = main.c src/xutil.c src/capture.c src/select.c src/save.c src/scripts.c
+PREFIX  = /usr/local
+BINDIR  = $(PREFIX)/bin
+BINARY  = screenshot
+
+SRCS = main.c \
+       src/capture.c \
+       src/save.c \
+       src/scripts.c \
+       src/select.c \
+       src/xutil.c
+
 OBJS = $(SRCS:.c=.o)
 
-screenshot: $(OBJS)
+all: $(BINARY)
+
+$(BINARY): $(OBJS)
 	$(CC) $(OBJS) -o $@ $(LIBS)
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-clean:
-	rm -f main.o $(patsubst %.c,%.o,$(filter src/%,$(SRCS))) screenshot
+install: $(BINARY)
+	install -Dm755 $(BINARY) $(DESTDIR)$(BINDIR)/$(BINARY)
 
-.PHONY: clean
+uninstall:
+	rm -f $(DESTDIR)$(BINDIR)/$(BINARY)
+
+clean:
+	rm -f $(OBJS) $(BINARY)
+
+.PHONY: all install uninstall clean
