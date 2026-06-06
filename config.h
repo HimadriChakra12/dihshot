@@ -3,7 +3,6 @@
 #include <stdio.h>
 #include <X11/keysym.h>
 
-// ── Output ────────────────────────────────────────────────────────────────────
 #define OPTDIR        "~/Pictures/screenshots/"
 #define OPTFORMAT     "%d-%02d-%02d_%02d:%02d:%02d.webp"
 #define OPTFORMATARGS tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, \
@@ -25,7 +24,7 @@
 #define OPTKEY_FULLSCREEN XK_f
 
 // ── Post-selection action keybinds ────────────────────────────────────────────
-#define OPTKEY_SAVE     XK_s   // save to OPTDIR
+#define OPTKEY_SAVE     XK_w   // save to OPTDIR
 #define OPTKEY_COPY     XK_y   // copy to clipboard (xclip)
 #define OPTKEY_ANNOTATE XK_a   // open OPTANNOTATE
 
