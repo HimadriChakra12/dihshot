@@ -5,7 +5,7 @@ LIBS   = -lX11 -lwebp
 
 PREFIX  = /usr/local
 BINDIR  = $(PREFIX)/bin
-BINARY  = screenshot
+BINARY  = shot
 
 SRCS = main.c \
        src/capture.c \
