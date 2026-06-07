@@ -77,16 +77,26 @@ static void rect_clamp(void) {
 }
 
 static void apply_drag(Zone z, int dx, int dy) {
+    if (z == ZONE_BODY) {
+        // Move: preserve size, just clamp position
+        rect.x += dx;
+        rect.y += dy;
+        if (rect.x < 0)              rect.x = 0;
+        if (rect.y < 0)              rect.y = 0;
+        if (rect.x + rect.w > W)     rect.x = W - rect.w;
+        if (rect.y + rect.h > H)     rect.y = H - rect.h;
+        return;
+    }
+    // Resize: adjust edges and clamp
     switch (z) {
-        case ZONE_BODY: rect.x+=dx; rect.y+=dy;                    break;
-        case ZONE_TL:   rect.x+=dx; rect.w-=dx; rect.y+=dy; rect.h-=dy; break;
-        case ZONE_TR:   rect.w+=dx;              rect.y+=dy; rect.h-=dy; break;
-        case ZONE_BL:   rect.x+=dx; rect.w-=dx; rect.h+=dy;        break;
-        case ZONE_BR:   rect.w+=dx;              rect.h+=dy;        break;
-        case ZONE_T:                             rect.y+=dy; rect.h-=dy; break;
-        case ZONE_B:                             rect.h+=dy;        break;
-        case ZONE_L:    rect.x+=dx; rect.w-=dx;                    break;
-        case ZONE_R:    rect.w+=dx;                                 break;
+        case ZONE_TL: rect.x+=dx; rect.w-=dx; rect.y+=dy; rect.h-=dy; break;
+        case ZONE_TR: rect.w+=dx;              rect.y+=dy; rect.h-=dy; break;
+        case ZONE_BL: rect.x+=dx; rect.w-=dx; rect.h+=dy;             break;
+        case ZONE_BR: rect.w+=dx;              rect.h+=dy;             break;
+        case ZONE_T:                           rect.y+=dy; rect.h-=dy; break;
+        case ZONE_B:                           rect.h+=dy;             break;
+        case ZONE_L:  rect.x+=dx; rect.w-=dx;                         break;
+        case ZONE_R:  rect.w+=dx;                                      break;
         default: break;
     }
     rect_clamp();
