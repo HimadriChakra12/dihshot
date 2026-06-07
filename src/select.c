@@ -105,19 +105,49 @@ static void apply_drag(Zone z, int dx, int dy) {
 }
 
 // ── Drawing ───────────────────────────────────────────────────────────────────
+
+// Original screenshot pixels — kept clean so we can darken from scratch each frame.
+static unsigned char *img_orig      = NULL;
+static int            img_orig_size = 0;
+
+static void drawing_init(void) {
+    img_orig_size = img->height * img->bytes_per_line;
+    free(img_orig);
+    img_orig = malloc(img_orig_size);
+    if (img_orig) memcpy(img_orig, img->data, img_orig_size);
+}
+
+// Darken one rectangular strip in img->data from img_orig.
+static void dim_strip(int x, int y, int w, int h) {
+    if (w <= 0 || h <= 0 || !img_orig) return;
+    unsigned int scale = 255 - OPTDIMALPHA;
+    for (int row = y; row < y + h; row++) {
+        unsigned char       *dst = (unsigned char *)img->data  + row * img->bytes_per_line + x * 4;
+        const unsigned char *src = img_orig                    + row * img->bytes_per_line + x * 4;
+        for (int col = 0; col < w; col++, dst += 4, src += 4) {
+            dst[0] = (unsigned char)(src[0] * scale >> 8);
+            dst[1] = (unsigned char)(src[1] * scale >> 8);
+            dst[2] = (unsigned char)(src[2] * scale >> 8);
+            dst[3] = src[3];
+        }
+    }
+}
+
 static void draw_handle(int cx, int cy) {
     int hs = OPTHANDLESIZE;
     XFillRectangle(disp, backbuffer, gc, cx-hs/2, cy-hs/2, hs, hs);
 }
 
 static void redraw(void) {
-    XPutImage(disp, backbuffer, gc, img, 0, 0, 0, 0, W, H);
+    // Restore clean pixels into img->data, then darken only the four outer strips.
+    if (img_orig) memcpy(img->data, img_orig, img_orig_size);
 
-    XSetForeground(disp, gc, OPTDIMCOLOR);
-    XFillRectangle(disp, backbuffer, gc, 0,             0,             W, rect.y);
-    XFillRectangle(disp, backbuffer, gc, 0,             rect.y+rect.h, W, H-rect.y-rect.h);
-    XFillRectangle(disp, backbuffer, gc, 0,             rect.y,        rect.x, rect.h);
-    XFillRectangle(disp, backbuffer, gc, rect.x+rect.w, rect.y,        W-rect.x-rect.w, rect.h);
+    dim_strip(0,            0,            W,               rect.y);
+    dim_strip(0,            rect.y+rect.h,W,               H-rect.y-rect.h);
+    dim_strip(0,            rect.y,       rect.x,          rect.h);
+    dim_strip(rect.x+rect.w,rect.y,       W-rect.x-rect.w, rect.h);
+
+    XPutImage(disp, backbuffer, gc, img, 0, 0, 0, 0, W, H);
 
     XSetForeground(disp, gc, (OPTR<<16)|(OPTG<<8)|OPTB);
     XDrawRectangle(disp, backbuffer, gc, rect.x, rect.y, rect.w, rect.h);
@@ -272,6 +302,7 @@ int run_selection(void) {
     // The overlay must be visible before we grab so that it's the topmost
     // window receiving events.
     if (!screenshot()) return SELECT_ERROR;
+    drawing_init();
     XMapRaised(disp, win);
     XSync(disp, False);
     XPutImage(disp, win, gc, img, 0, 0, 0, 0, W, H);
@@ -383,5 +414,7 @@ int run_selection(void) {
     }
 
     ungrab_all();
+    free(img_orig);
+    img_orig = NULL;
     return SELECT_OK;
 }

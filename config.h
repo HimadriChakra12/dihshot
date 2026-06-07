@@ -35,7 +35,7 @@
 #define OPTG          255       
 #define OPTB          255       
 #define OPTHANDLESIZE 8         
-#define OPTDIMCOLOR   0x80000000
+#define OPTDIMALPHA   120
 
 #define die(...) { \
     printf("\033[1;31mError:\033[0m "); \
