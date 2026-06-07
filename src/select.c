@@ -146,12 +146,24 @@ static void redraw(void) {
 }
 
 // ── Keyboard grab helper ──────────────────────────────────────────────────────
+//
+// GrabModeSync freezes the keyboard device — events queue up in the server
+// and are not delivered to any other client until we call XAllowEvents.
+// This prevents keypresses from leaking through to the window underneath
+// (e.g. pressing 'f' triggering Firefox's find bar).
+//
 static int grab_keyboard(void) {
     return XGrabKeyboard(
-        disp, root, False,
-        GrabModeAsync, GrabModeAsync,
+        disp, win, False,
+        GrabModeAsync,
+        GrabModeSync,
         CurrentTime
     ) == GrabSuccess;
+}
+
+// Call after consuming a key event to unfreeze the keyboard for the next one.
+static void kbd_allow(void) {
+    XAllowEvents(disp, AsyncKeyboard, CurrentTime);
 }
 
 // ── Pre-selection mode chooser ────────────────────────────────────────────────
@@ -165,9 +177,11 @@ static Mode pick_mode(void) {
         debug("pre-select pointer grab failed");
         return (Mode)-1;
     }
-    // Also grab keyboard so we can intercept f / Escape before the click.
-    int have_kbd = XGrabKeyboard(disp, root, False,
-                                 GrabModeAsync, GrabModeAsync,
+    // Grab keyboard on our overlay window (already mapped + focused).
+    // Grabbing on root fails when another window has focus; grabbing on win
+    // after XSetInputFocus ensures we own all key events exclusively.
+    int have_kbd = XGrabKeyboard(disp, win, False,
+                                 GrabModeAsync, GrabModeSync,
                                  CurrentTime) == GrabSuccess;
     if (!have_kbd)
         debug("pre-select keyboard grab failed — f key unavailable");
@@ -181,6 +195,7 @@ static Mode pick_mode(void) {
 
         if (e.type == KeyPress) {
             KeySym ks = XLookupKeysym(&e.xkey, 0);
+            if (have_kbd) XAllowEvents(disp, AsyncKeyboard, CurrentTime);
             if      (ks == XK_Escape)        { cancel = 1;             break; }
             else if (ks == OPTKEY_FULLSCREEN) { mode = MODE_FULLSCREEN; break; }
             else                             { mode = MODE_REGION;     break; }
@@ -226,22 +241,31 @@ int     select_nscripts(void)    { return nscripts; }
 int run_selection(void) {
     nscripts = scripts_load(loaded_scripts);
 
-    // ── Pre-selection: choose mode before grabbing the pointer ────────────────
-    Mode mode = pick_mode();
-    if ((int)mode == -1) return SELECT_CANCEL; // Escape in mode picker
+    // ── Capture screen and raise overlay FIRST ────────────────────────────────
+    // This must happen before any user input so that by the time we read keys
+    // or mouse clicks, the overlay is already covering all other windows.
+    // Browser extensions (Vimium etc.) can no longer intercept our keys once
+    // the overlay window has focus.
+    if (!screenshot()) return SELECT_ERROR;
 
-    // ── FULLSCREEN: no drawing needed, rect = whole screen ────────────────────
+    XMapRaised(disp, win);
+    XSetInputFocus(disp, win, RevertToPointerRoot, CurrentTime);
+    XSync(disp, False);
+
+    // Show the frozen screenshot immediately so the screen doesn't flicker
+    XPutImage(disp, win, gc, img, 0, 0, 0, 0, W, H);
+    XFlush(disp);
+
+    // ── Pre-selection: choose mode ────────────────────────────────────────────
+    Mode mode = pick_mode();
+    if ((int)mode == -1) return SELECT_CANCEL;
+
+    // ── FULLSCREEN ────────────────────────────────────────────────────────────
     if (mode == MODE_FULLSCREEN) {
-        if (!screenshot()) return SELECT_ERROR;
         rect.x = 0; rect.y = 0; rect.w = W; rect.h = H;
-        XMapRaised(disp, win);
-        XSync(disp, False);
-        // Show the full screen dimmed (nothing to dim) with border, then
-        // immediately enter SELECTED state so the user can pick a script.
         if (!grab_keyboard()) debug("Keyboard grab failed — shortcuts disabled");
         redraw();
         debug("MODE_FULLSCREEN: rect=0,0 %dx%d", W, H);
-        // Fall through to the SELECTED event loop below.
         goto post_selection;
     }
 
@@ -277,13 +301,6 @@ int run_selection(void) {
         anchor_y = rect.y = e.xbutton.y;
         rect.w = rect.h = 0;
         px = anchor_x; py = anchor_y;
-
-        if (!screenshot()) { XUngrabPointer(disp, CurrentTime); return SELECT_ERROR; }
-
-        XMapRaised(disp, win);
-        XSync(disp, False);
-        XPutImage(disp, win, gc, img, 0, 0, 0, 0, W, H);
-        XSync(disp, False);
 
         while (state != STATE_DONE) {
             XNextEvent(disp, &e);
@@ -438,6 +455,7 @@ post_selection:
                 (void)state; /* suppress maybe-unused */
                 handle_key: {
                     KeySym ks = XLookupKeysym(&e.xkey, 0);
+                    kbd_allow(); // unfreeze keyboard — must call on every KeyPress
 
                     if (ks == XK_Escape) {
                         XUngrabPointer(disp, CurrentTime);
