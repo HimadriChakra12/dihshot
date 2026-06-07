@@ -11,6 +11,8 @@
 #include <X11/cursorfont.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
+#include <time.h>
 
 // ── Results ───────────────────────────────────────────────────────────────────
 static Rect   rect;
@@ -144,11 +146,21 @@ static void redraw(void) {
 // receive XSetInputFocus so we can't grab on win. Grabbing on root with
 // owner_events=False means ALL key events go only to us, nothing leaks.
 static int grab_kbd(void) {
-    int r = XGrabKeyboard(disp, root, False,
-                          GrabModeAsync, GrabModeAsync,
-                          CurrentTime);
-    debug("XGrabKeyboard -> %d (0=success)", r);
-    return r == GrabSuccess;
+    // When launched via a WM keybind, the WM may still hold a keyboard grab
+    // for a few milliseconds after spawning us. Retry until it releases.
+    struct timespec ts = { 0, 5000000 }; // 5ms
+    for (int i = 0; i < 40; i++) {       // up to 200ms total
+        int r = XGrabKeyboard(disp, root, False,
+                              GrabModeAsync, GrabModeAsync,
+                              CurrentTime);
+        if (r == GrabSuccess) {
+            debug("XGrabKeyboard succeeded on attempt %d", i + 1);
+            return 1;
+        }
+        nanosleep(&ts, NULL);
+    }
+    debug("XGrabKeyboard failed after retries");
+    return 0;
 }
 
 static void ungrab_all(void) {
@@ -264,6 +276,12 @@ int run_selection(void) {
     XSync(disp, False);
     XPutImage(disp, win, gc, img, 0, 0, 0, 0, W, H);
     XFlush(disp);
+
+    // Wait for the keybind key to be physically released before grabbing.
+    // Without this, the grab fails or the trigger key leaks into phase 1
+    // when launched via a WM keybind (XFCE, i3, etc.).
+    struct timespec ts = { 0, OPTGRABDELAY * 1000000L };
+    nanosleep(&ts, NULL);
 
     // Grab pointer on root (async — events go to us, nothing leaks to Firefox).
     // Grab keyboard on root with owner_events=False — override_redirect windows
