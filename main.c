@@ -29,7 +29,11 @@ static void action_copy(const char *path) {
 
 static void action_annotate(const char *path) {
 #ifdef OPTANNOTATE
-    char *args[] = { OPTANNOTATE, (char *)path, NULL };
+    #ifdef OPTANNOTATE_FLAGS
+        char *args[] = { OPTANNOTATE, OPTANNOTATE_FLAGS, (char *)path, NULL };
+    #else
+        char *args[] = { OPTANNOTATE, (char *)path, NULL };
+    #endif
     execvp(args[0], args);
     perror(OPTANNOTATE);
 #else

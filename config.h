@@ -13,28 +13,29 @@
 // Directory scanned for *.sh files (bound to 1–9 in alphabetical order).
 #define OPTSCRIPTDIR "~/.config/screenshot/exec"
 
-// Set to NULL to disable annotation.
-#define OPTANNOTATE "satty"
+#define OPTANNOTATE       "swappy"
+#define OPTANNOTATE_FLAGS "-f"
 
 #define OPTGRABDELAY 150
-// Pre Selection - Escape / right-click always cancels.
+
+// ── Pre-selection action keybinds ────────────────────────────────────────────
 #define OPTKEY_FULLSCREEN XK_f
 
-// Post-selection action keybinds
-#define OPTKEY_SAVE     XK_s
+// ── Post-selection action keybinds ────────────────────────────────────────────
+#define OPTKEY_SAVE     XK_w
 #define OPTKEY_COPY     XK_y
 #define OPTKEY_ANNOTATE XK_a
 
 // Additional keybinds that run scripts from OPTSCRIPTDIR by name:
 //   { keysym, "script-name-without-.sh" }
 // Example:  #define OPTSCRIPTBINDS { { XK_u, "upload" } }
+// #define OPTSCRIPTBINDS { { XK_u, "upload" } }
 
-// Selection rect appearance
-#define OPTWIDTH      1         
-#define OPTR          255       
-#define OPTG          255       
-#define OPTB          255       
-#define OPTHANDLESIZE 8         
+#define OPTWIDTH      1
+#define OPTR          255
+#define OPTG          255
+#define OPTB          255
+#define OPTHANDLESIZE 8
 #define OPTDIMALPHA   120
 
 #define die(...) { \
