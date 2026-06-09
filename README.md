@@ -1,5 +1,5 @@
-# Dihshot
-A xlib screenshot tool thats minimal than flameshot written in C
+# Shot
+A minimal xlib screenshot tool written in C
 
 ## Config
 Config is in the first few lines of `config.h`
