@@ -13,7 +13,7 @@
 // Directory scanned for *.sh files (bound to 1–9 in alphabetical order).
 #define OPTSCRIPTDIR "~/.config/screenshot/exec"
 
-#define OPTANNOTATE       "swappy"
+#define OPTANNOTATE       "sxat"
 #define OPTANNOTATE_FLAGS "-f"
 
 #define OPTGRABDELAY 150
